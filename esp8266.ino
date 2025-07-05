@@ -3,7 +3,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <SSD1306Wire.h>
-
+//BOARD LOLIN (WEMOS) D1 ESP8266
 // ====== OLED SETUP (ThingPulse SSD1306 library) ======
 SSD1306Wire display(0x3C, 14, 12); // SDA = GPIO14, SCL = GPIO12
 
