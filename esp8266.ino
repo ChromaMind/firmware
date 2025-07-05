@@ -1,53 +1,50 @@
 #include <ESP8266WiFi.h>
 #include <WebSocketsServer.h>
 #include <Adafruit_NeoPixel.h>
-#include <ArduinoJson.h>
 #include <SSD1306Wire.h>
-//BOARD LOLIN (WEMOS) D1 ESP8266
-// ====== OLED SETUP (ThingPulse SSD1306 library) ======
-SSD1306Wire display(0x3C, 14, 12); // SDA = GPIO14, SCL = GPIO12
 
-// ====== NeoPixel Setup ======
 #define LED_PIN     D4
 #define NUM_PIXELS  32
+#define MAX_WAIT_MS 4000
+#define WEBSOCKET_LOOP_INTERVAL_MS 5
+
+SSD1306Wire display(0x3C, 14, 12);
 Adafruit_NeoPixel strip(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// ====== WiFi Setup ======
 const char* ssid = "Cubex";
 const char* password = "thunderluck";
-
 IPAddress local_IP(10, 151, 240, 37);
 IPAddress gateway(10, 151, 240, 97);
 IPAddress subnet(255, 255, 255, 0);
 
-// ====== WebSocket Setup ======
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-// ====== Animation Frame Buffer ======
-#define MAX_FRAMES 150
-#define MAX_WAIT_MS 1000
+uint8_t blinkMode = 0;
+uint16_t blinkInterval = 50;
+uint8_t brightness = 100;
 
-struct Frame {
-  uint32_t delayFromPrevious;
-  uint8_t leds[NUM_PIXELS][3]; // [r,g,b]
-};
-
-Frame frames[MAX_FRAMES];
 uint16_t totalFrames = 0;
 uint16_t currentFrame = 0;
 bool playing = false;
 unsigned long frameStartTime = 0;
 unsigned long lastDataTime = 0;
+unsigned long lastFrameFlash = 0;
+bool frameOn = true;
+unsigned long lastWebSocketLoop = 0;
+bool rowToggle = false;
 
-// ====== Setup ======
+uint16_t XY(uint8_t x, uint8_t y) {
+  return y * 16 + x;
+}
+
 void setup() {
   Serial.begin(115200);
   strip.begin();
+  strip.setBrightness(brightness);
   strip.show();
 
   display.init();
-  display.flipScreenVertically(); // Flip the display
-
+  display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
   display.clear();
   display.drawString(0, 0, "Booting...");
@@ -76,148 +73,233 @@ void setup() {
   display.display();
 }
 
-// ====== Main Loop ======
 void loop() {
-  webSocket.loop();
   unsigned long now = millis();
 
-  if (playing && totalFrames > 0) {
-    if (now - frameStartTime >= frames[currentFrame].delayFromPrevious) {
-      displayFrame(currentFrame);
-      currentFrame++;
-      frameStartTime = now;
-      if (currentFrame >= totalFrames) {
-        playing = false;
-        lastDataTime = now;
-      }
+  if (now - lastWebSocketLoop >= WEBSOCKET_LOOP_INTERVAL_MS) {
+    webSocket.loop();
+    lastWebSocketLoop = now;
+  }
+
+  if (playing) {
+    switch (blinkMode) {
+      case 1: mode_1(now); break;
+      case 2: mode_2(now); break;
+      case 3: mode_3(now); break;
+      case 4: mode_4(now); break;
+      case 5: mode_5(now); break;
+      case 6: mode_6(now); break;
+      case 7: mode_7(now); break;
+      case 8: mode_8(now); break;
     }
   }
 
-  if (!playing && totalFrames > 0 && now - lastDataTime > MAX_WAIT_MS) {
+  if (!playing && now - lastDataTime > MAX_WAIT_MS) {
     clearStrip();
     totalFrames = 0;
     currentFrame = 0;
   }
 }
 
-// ====== Render Frame ======
-void displayFrame(uint16_t index) {
-  for (int i = 0; i < NUM_PIXELS; i++) {
-    strip.setPixelColor(i, strip.Color(
-      frames[index].leds[i][0],
-      frames[index].leds[i][1],
-      frames[index].leds[i][2]
-    ));
-  }
-  strip.show();
-}
-
-// ====== Clear Strip ======
 void clearStrip() {
-  const int steps = 30;
-  const int delayPerStep = 100; // 30 steps * 100 ms = 3 seconds
-
-  for (int step = steps; step >= 0; step--) {
-    float factor = step / (float)steps;
-
-    for (int i = 0; i < NUM_PIXELS; i++) {
-      uint32_t color = strip.getPixelColor(i);
-      uint8_t r = (uint8_t)(factor * ((color >> 16) & 0xFF));
-      uint8_t g = (uint8_t)(factor * ((color >> 8) & 0xFF));
-      uint8_t b = (uint8_t)(factor * (color & 0xFF));
-      strip.setPixelColor(i, strip.Color(r, g, b));
-    }
-
-    strip.show();
-    delay(delayPerStep);
-  }
-
-  // Final clear to make sure it's off
   for (int i = 0; i < NUM_PIXELS; i++) {
     strip.setPixelColor(i, 0);
   }
   strip.show();
-
-  Serial.println("Strip faded out and cleared.");
-  display.drawString(0, 50, "Strip faded out");
-  display.display();
 }
 
-// ====== WebSocket Event Handler ======
+void mode_1(unsigned long now) {
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    frameOn = !frameOn;
+
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      strip.setPixelColor(i, frameOn ? strip.Color(255, 255, 255) : 0);
+    }
+    strip.show();
+  }
+}
+
+void mode_2(unsigned long now) {
+  static uint8_t r1 = random(256), g1 = random(256), b1 = random(256);
+  static uint8_t r2 = random(256), g2 = random(256), b2 = random(256);
+  static uint8_t targetR1 = random(256), targetG1 = random(256), targetB1 = random(256);
+  static uint8_t targetR2 = random(256), targetG2 = random(256), targetB2 = random(256);
+  static unsigned long lastColorUpdate = 0;
+  const uint8_t step = 5;
+
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    frameOn = !frameOn;
+
+    if (frameOn && now - lastColorUpdate >= blinkInterval) {
+      lastColorUpdate = now;
+      r1 += (targetR1 > r1) ? min((int)step, (int)(targetR1 - r1)) : -min((int)step, (int)(r1 - targetR1));
+      g1 += (targetG1 > g1) ? min((int)step, (int)(targetG1 - g1)) : -min((int)step, (int)(g1 - targetG1));
+      b1 += (targetB1 > b1) ? min((int)step, (int)(targetB1 - b1)) : -min((int)step, (int)(b1 - targetB1));
+
+      r2 += (targetR2 > r2) ? min((int)step, (int)(targetR2 - r2)) : -min((int)step, (int)(r2 - targetR2));
+      g2 += (targetG2 > g2) ? min((int)step, (int)(targetG2 - g2)) : -min((int)step, (int)(g2 - targetG2));
+      b2 += (targetB2 > b2) ? min((int)step, (int)(targetB2 - b2)) : -min((int)step, (int)(b2 - targetB2));
+
+      if (abs(r1 - targetR1) < 5) targetR1 = random(256);
+      if (abs(g1 - targetG1) < 5) targetG1 = random(256);
+      if (abs(b1 - targetB1) < 5) targetB1 = random(256);
+      if (abs(r2 - targetR2) < 5) targetR2 = random(256);
+      if (abs(g2 - targetG2) < 5) targetG2 = random(256);
+      if (abs(b2 - targetB2) < 5) targetB2 = random(256);
+    }
+
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      strip.setPixelColor(i, frameOn ?
+        (i < 16 ? strip.Color(r1, g1, b1) : strip.Color(r2, g2, b2)) : 0);
+    }
+    strip.show();
+  }
+}
+
+void mode_3(unsigned long now) {
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    frameOn = !frameOn;
+
+    for (uint8_t x = 0; x < 16; x++) {
+      for (uint8_t y = 0; y < 2; y++) {
+        bool edge = (x == 0 || x == 15);
+        strip.setPixelColor(XY(x, y), (frameOn && edge) ? strip.Color(255, 0, 0) : 0);
+      }
+    }
+    strip.show();
+  }
+}
+
+void mode_4(unsigned long now) {
+  static uint8_t radius = 0;
+  static bool expanding = true;
+
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    frameOn = !frameOn;
+    clearStrip();
+    uint8_t mid = 7;
+
+    for (int dx = -radius; dx <= radius; dx++) {
+      uint8_t xL = mid + dx;
+      if (xL < 16) {
+        for (uint8_t y = 0; y < 2; y++)
+          strip.setPixelColor(XY(xL, y), frameOn ? strip.Color(0, 255, 0) : 0);
+      }
+    }
+
+    expanding ? radius++ : radius--;
+    if (radius >= 7) expanding = false;
+    if (radius == 0) expanding = true;
+
+    strip.show();
+  }
+}
+
+void mode_5(unsigned long now) {
+  static uint8_t step = 0;
+
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    frameOn = !frameOn;
+    clearStrip();
+
+    uint8_t left = step;
+    uint8_t right = 15 - step;
+    if (left <= right) {
+      for (uint8_t y = 0; y < 2; y++) {
+        strip.setPixelColor(XY(left, y), frameOn ? strip.Color(0, 255, 255) : 0);
+        strip.setPixelColor(XY(right, y), frameOn ? strip.Color(0, 255, 255) : 0);
+      }
+      step++;
+    } else {
+      step = 0;
+    }
+
+    strip.show();
+  }
+}
+
+void mode_6(unsigned long now) {
+  static uint8_t pos = 0;
+
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    clearStrip();
+    frameOn = !frameOn;
+
+    for (uint8_t y = 0; y < 2; y++)
+      strip.setPixelColor(XY(pos, y), frameOn ? strip.Color(255, 255, 0) : 0);
+
+    pos = (pos + 1) % 16;
+    strip.show();
+  }
+}
+
+void mode_7(unsigned long now) {
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    rowToggle = !rowToggle;
+
+    for (uint8_t x = 0; x < 16; x++) {
+      for (uint8_t y = 0; y < 2; y++) {
+        bool show = (y == 0 && rowToggle) || (y == 1 && !rowToggle);
+        strip.setPixelColor(XY(x, y), show ? strip.Color(255, 0, 255) : 0);
+      }
+    }
+    strip.show();
+  }
+}
+
+void mode_8(unsigned long now) {
+  static uint8_t head = 0;
+  static int8_t dir = 1;
+
+  if (now - lastFrameFlash >= blinkInterval) {
+    lastFrameFlash = now;
+    clearStrip();
+    frameOn = !frameOn;
+
+    for (int8_t i = 0; i < 3; i++) {
+      int8_t x = head - i * dir;
+      if (x >= 0 && x < 16) {
+        for (uint8_t y = 0; y < 2; y++)
+          strip.setPixelColor(XY(x, y), frameOn ? strip.Color(100, 100, 255) : 0);
+      }
+    }
+
+    head += dir;
+    if (head == 15 || head == 0) dir *= -1;
+
+    strip.show();
+  }
+}
+
 void onWebSocketEvent(uint8_t client_num, WStype_t type, uint8_t* payload, size_t length) {
   if (type != WStype_TEXT) return;
 
-  StaticJsonDocument<16384> doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.println("JSON error: " + String(err.c_str()));
-    display.drawString(0, 40, "JSON error");
-    display.display();
-    return;
+  char* token = strtok((char*)payload, ";");
+  if (token) blinkMode = atoi(token);
+
+  token = strtok(NULL, ";");
+  if (token) blinkInterval = atoi(token);
+
+  token = strtok(NULL, ";");
+  if (token) {
+    brightness = atoi(token);
+    strip.setBrightness(brightness);
   }
 
-  JsonArray arr = doc.as<JsonArray>();
-  if (arr.size() == 0) return;
+  Serial.printf("[mode=%d blink=%dms brightness=%d]\n", blinkMode, blinkInterval, brightness);
 
-  totalFrames = 0;
+  totalFrames = 1;
   currentFrame = 0;
-  playing = false;
-  uint32_t prevTime = arr[0]["time"] | 0;
-  bool overflow = false;
-
-  for (JsonObject obj : arr) {
-    if (totalFrames >= MAX_FRAMES) {
-      overflow = true;
-      break;
-    }
-
-    uint32_t currentTime = obj["time"] | 0;
-    uint32_t delay = currentTime - prevTime;
-    prevTime = currentTime;
-
-    JsonArray leds2D = obj["leds"];
-    if (leds2D.size() != 2) continue;
-
-    JsonArray ledsA = leds2D[0];
-    JsonArray ledsB = leds2D[1];
-    if (ledsA.size() + ledsB.size() != NUM_PIXELS) continue;
-
-    Frame& f = frames[totalFrames];
-    f.delayFromPrevious = delay;
-
-    int idx = 0;
-    for (JsonObject c : ledsA) {
-      uint8_t a = c.containsKey("a") ? (uint8_t)c["a"] : 100;
-      f.leds[idx][0] = (c["r"] | 0) * a / 100;
-      f.leds[idx][1] = (c["g"] | 0) * a / 100;
-      f.leds[idx][2] = (c["b"] | 0) * a / 100;
-      idx++;
-    }
-    for (JsonObject c : ledsB) {
-      uint8_t a = c.containsKey("a") ? (uint8_t)c["a"] : 100;
-      f.leds[idx][0] = (c["r"] | 0) * a / 100;
-      f.leds[idx][1] = (c["g"] | 0) * a / 100;
-      f.leds[idx][2] = (c["b"] | 0) * a / 100;
-      idx++;
-    }
-
-    totalFrames++;
-  }
-
-  if (overflow) {
-    Serial.println("[!] Frame overflow");
-    display.drawString(0, 40, "Overflow!");
-    display.display();
-  }
-
-  if (totalFrames > 0) {
-    Serial.printf("✅ %d frame(s) received\n", totalFrames);
-    display.clear();
-    display.drawString(0, 0, "Frames: " + String(totalFrames));
-    display.drawString(0, 20, "Playing...");
-    display.display();
-    currentFrame = 0;
-    frameStartTime = millis();
-    playing = true;
-  }
+  playing = true;
+  frameStartTime = millis();
+  lastFrameFlash = frameStartTime;
+  frameOn = true;
+  lastDataTime = millis();
 }
