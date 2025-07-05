@@ -14,7 +14,7 @@ Adafruit_NeoPixel strip(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // ====== WiFi Setup ======
 const char* ssid = "Cubex";
-const char* password = "thunderfuck";
+const char* password = "thunderluck";
 
 IPAddress local_IP(10, 151, 240, 37);
 IPAddress gateway(10, 151, 240, 97);
