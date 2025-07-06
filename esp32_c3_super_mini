@@ -11,7 +11,7 @@ Adafruit_NeoPixel strip(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 const char* ssid = "Cubex";
 const char* password = "thunderluck";
-IPAddress local_IP(10, 151, 240, 92);
+IPAddress local_IP(10, 151, 240, 99);
 IPAddress gateway(10, 151, 240, 97);
 IPAddress subnet(255, 255, 255, 0);
 
