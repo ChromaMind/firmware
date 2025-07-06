@@ -53,7 +53,7 @@ void setup() {
   display.drawString(0, 0, "Booting...");
   display.display();
 
-  WiFi.config(local_IP, gateway, subnet);
+  // WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
   display.drawString(0, 15, "Connecting to WiFi...");
   display.display();
